@@ -11,14 +11,12 @@ async def vector_search(
     candidate_k: int,
 ) -> list[dict[str, Any]]:
     """Cosine similarity search via pgvector HNSW index."""
-    # TODO: implement
-    # client = await get_client()
-    # result = await client.rpc(
-    #     "match_chunks_vector",
-    #     {"query_embedding": embedding, "match_count": candidate_k},
-    # ).execute()
-    # return result.data
-    return []
+    client = await get_client()
+    result = await client.rpc(
+        "match_chunks_vector",
+        {"query_embedding": embedding, "match_count": candidate_k},
+    ).execute()
+    return result.data
 
 
 async def bm25_search(
@@ -26,14 +24,12 @@ async def bm25_search(
     candidate_k: int,
 ) -> list[dict[str, Any]]:
     """Full-text search via tsvector GIN index."""
-    # TODO: implement
-    # client = await get_client()
-    # result = await client.rpc(
-    #     "match_chunks_bm25",
-    #     {"query_text": query, "match_count": candidate_k},
-    # ).execute()
-    # return result.data
-    return []
+    client = await get_client()
+    result = await client.rpc(
+        "match_chunks_bm25",
+        {"query_text": query, "match_count": candidate_k},
+    ).execute()
+    return result.data
 
 
 def rrf_fuse(

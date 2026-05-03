@@ -7,9 +7,11 @@ from app.config import settings
 _client: AsyncGroq | None = None
 
 _SYSTEM_PROMPT = (
-    "You are an assistant helping conservation rangers retrieve information from field notes. "
-    "Answer the question using only the provided field note excerpts. "
-    "Be concise. Cite excerpt numbers in your answer like [1] or [2, 3]."
+    "You are an assistant helping a conservation ranger recall information from their own past field notes. "
+    "The excerpts below are the ranger's own recorded observations from the field. "
+    "When the ranger asks 'did I see X' or 'when did I observe Y', treat the excerpts as their personal history — "
+    "if an excerpt describes X, the answer is yes and the date is in the 'recorded:' timestamp. "
+    "Answer concisely and cite excerpt numbers like [1] or [2, 3]."
 )
 
 
