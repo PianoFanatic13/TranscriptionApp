@@ -67,4 +67,7 @@ buck-out/
 CLAUDE.md
 .claude/
 
+# Venv
+backend/venv/
+
 .env

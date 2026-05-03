@@ -1,18 +1,25 @@
 from fastapi import APIRouter, HTTPException
 
+import app.db as db
 from app.schemas import IngestRequest, IngestResponse, QueryRequest, QueryResponse
+from app.services import chunker
+from app.services import embeddings as embeddings_service
 
 router = APIRouter()
 
 
 @router.post("/embed", response_model=IngestResponse)
 async def embed_transcript(payload: IngestRequest) -> IngestResponse:
-    """Chunk, embed, and store a corrected transcript."""
-    # TODO: chunks = chunker.chunk_text(payload.corrected_transcript)
-    # TODO: embeddings = await embeddings_service.embed_batch(chunks)
-    # TODO: note_id = await db.insert_note_and_chunks(payload, chunks, embeddings)
-    # TODO: return IngestResponse(note_id=note_id, chunk_count=len(chunks))
-    raise HTTPException(status_code=501, detail="Not implemented yet")
+    chunks = chunker.chunk_text(payload.raw_transcript)
+    vectors = await embeddings_service.embed_batch(chunks)
+    note_id = await db.insert_note_and_chunks(
+        user_id=payload.user_id,
+        raw_transcript=payload.raw_transcript,
+        metadata=payload.metadata or {},
+        chunks=chunks,
+        embeddings=vectors,
+    )
+    return IngestResponse(note_id=note_id, chunk_count=len(chunks))
 
 
 @router.post("/query", response_model=QueryResponse)

@@ -10,8 +10,7 @@ from pydantic import BaseModel, Field
 
 class IngestRequest(BaseModel):
     user_id: str
-    corrected_transcript: str
-    raw_transcript: Optional[str] = None
+    raw_transcript: str
     metadata: Optional[dict[str, Any]] = Field(default_factory=dict)
 
 

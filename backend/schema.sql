@@ -10,8 +10,7 @@ create extension if not exists vector;
 create table if not exists notes (
     id                   uuid        primary key default gen_random_uuid(),
     user_id              text        not null,
-    raw_transcript       text,
-    corrected_transcript text        not null,
+    raw_transcript       text        not null,
     metadata             jsonb       not null default '{}',
     created_at           timestamptz not null default now()
 );
@@ -43,6 +42,11 @@ create index if not exists chunks_ts_content_gin_idx
 -- B-tree indexes for filtering
 create index if not exists chunks_user_id_idx  on chunks (user_id);
 create index if not exists chunks_note_id_idx  on chunks (note_id);
+
+-- ── Grants ───────────────────────────────────────────────────────────────────
+
+grant all on public.notes  to service_role;
+grant all on public.chunks to service_role;
 
 -- ── RPC helper functions ──────────────────────────────────────────────────────
 -- Called by services/retrieval.py via supabase.rpc(...)
