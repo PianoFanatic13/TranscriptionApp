@@ -1,4 +1,5 @@
-Current State: Simple recording and transcription workflow works. Also has ability to replay last recording for testing. 
-Next To-do: 
-- Uncertainty highlighting based on whisper confidence scores
-- Setup mock database, change workflow to only upload when internet available idk
+Current State: Backend system works, and API wired to a simple front-end with record screen and also query screen.
+
+To-Do:
+
+- Maybe add simple "login" screen before to get user's name/ID to seperate the different IDs and stuff.
