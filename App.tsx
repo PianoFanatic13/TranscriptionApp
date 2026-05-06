@@ -1,13 +1,38 @@
-import React from 'react';
+import React, {useEffect, useState} from 'react';
+import {ActivityIndicator, Text, View} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {NavigationContainer} from '@react-navigation/native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
-import {Text} from 'react-native';
 import RecordScreen from './src/screens/RecordScreen';
 import QueryScreen from './src/screens/QueryScreen';
+import LoginScreen from './src/screens/LoginScreen';
+
+const DEVICE_USER_ID_KEY = 'device_user_id';
 
 const Tab = createBottomTabNavigator();
 
 const App = () => {
+  const [userId, setUserId] = useState<string | null>(null);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    AsyncStorage.getItem(DEVICE_USER_ID_KEY)
+      .then(stored => setUserId(stored))
+      .finally(() => setChecking(false));
+  }, []);
+
+  if (checking) {
+    return (
+      <View style={{flex: 1, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center'}}>
+        <ActivityIndicator color="#60a5fa" size="large" />
+      </View>
+    );
+  }
+
+  if (!userId) {
+    return <LoginScreen onLogin={setUserId} />;
+  }
+
   return (
     <NavigationContainer>
       <Tab.Navigator

@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     groq_api_key: str
 
     # Embedding
-    embedding_model: str = "BAAI/bge-base-en-v1.5"
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
 
     # Chunking
     chunk_size: int = 384

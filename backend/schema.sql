@@ -20,8 +20,8 @@ create table if not exists chunks (
     note_id     uuid        not null references notes(id) on delete cascade,
     chunk_index integer     not null,
     content     text        not null,
-    -- BGE-base-en-v1.5 produces 768-dimensional L2-normalised vectors
-    embedding   vector(768),
+    -- BGE-small-en-v1.5 produces 384-dimensional L2-normalised vectors
+    embedding   vector(384),
     -- Generated column — updated automatically whenever content changes
     ts_content  tsvector    generated always as (to_tsvector('english', content)) stored,
     user_id     text        not null,
@@ -52,7 +52,7 @@ grant all on public.chunks to service_role;
 -- Called by services/retrieval.py via supabase.rpc(...)
 
 create or replace function match_chunks_vector(
-    query_embedding vector(768),
+    query_embedding vector(384),
     match_count     int default 50
 )
 returns table (
