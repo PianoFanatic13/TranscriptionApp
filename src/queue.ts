@@ -2,7 +2,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {embedNote} from './api';
 
 const PENDING_NOTES_KEY = 'pending_notes';
-const DEVICE_USER_ID_KEY = 'device_user_id';
 
 interface PendingNote {
   id: string;
@@ -14,16 +13,6 @@ interface PendingNote {
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
-export async function getOrCreateUserId(): Promise<string> {
-  const existing = await AsyncStorage.getItem(DEVICE_USER_ID_KEY);
-  if (existing) {
-    return existing;
-  }
-  const newId = `device-${generateId()}`;
-  await AsyncStorage.setItem(DEVICE_USER_ID_KEY, newId);
-  return newId;
 }
 
 export async function enqueueNote(note: {
@@ -43,7 +32,23 @@ export async function enqueueNote(note: {
   await AsyncStorage.setItem(PENDING_NOTES_KEY, JSON.stringify(queue));
 }
 
-export async function flushQueue(): Promise<{sent: number; failed: number}> {
+// Concurrent flushes (e.g. NetInfo "connected" firing twice during wifi reconnect
+// while a post-transcribe flush is also running) would both read the same queue
+// and POST the same notes, creating duplicates. Coalesce overlapping callers
+// onto a single in-flight flush.
+let flushInProgress: Promise<{sent: number; failed: number}> | null = null;
+
+export function flushQueue(): Promise<{sent: number; failed: number}> {
+  if (flushInProgress) {
+    return flushInProgress;
+  }
+  flushInProgress = doFlush().finally(() => {
+    flushInProgress = null;
+  });
+  return flushInProgress;
+}
+
+async function doFlush(): Promise<{sent: number; failed: number}> {
   const raw = await AsyncStorage.getItem(PENDING_NOTES_KEY);
   if (!raw) {
     return {sent: 0, failed: 0};

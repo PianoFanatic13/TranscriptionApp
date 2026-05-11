@@ -1,6 +1,5 @@
 import React, {useState} from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
@@ -10,9 +9,6 @@ import {
   TextInput,
   TouchableOpacity,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const DEVICE_USER_ID_KEY = 'device_user_id';
 
 interface Props {
   onLogin: (username: string) => void;
@@ -20,15 +16,12 @@ interface Props {
 
 const LoginScreen = ({onLogin}: Props) => {
   const [username, setUsername] = useState('');
-  const [saving, setSaving] = useState(false);
 
-  const handleStart = async () => {
+  const handleStart = () => {
     const trimmed = username.trim();
-    if (!trimmed || saving) {
+    if (!trimmed) {
       return;
     }
-    setSaving(true);
-    await AsyncStorage.setItem(DEVICE_USER_ID_KEY, trimmed);
     onLogin(trimmed);
   };
 
@@ -54,18 +47,11 @@ const LoginScreen = ({onLogin}: Props) => {
         />
 
         <TouchableOpacity
-          style={[
-            styles.button,
-            (!username.trim() || saving) ? styles.buttonDisabled : null,
-          ]}
+          style={[styles.button, !username.trim() ? styles.buttonDisabled : null]}
           onPress={handleStart}
           activeOpacity={0.86}
-          disabled={!username.trim() || saving}>
-          {saving ? (
-            <ActivityIndicator color="#ffffff" />
-          ) : (
-            <Text style={styles.buttonText}>Start</Text>
-          )}
+          disabled={!username.trim()}>
+          <Text style={styles.buttonText}>Start</Text>
         </TouchableOpacity>
       </KeyboardAvoidingView>
     </SafeAreaView>

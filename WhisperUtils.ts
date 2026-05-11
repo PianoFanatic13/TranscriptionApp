@@ -4,7 +4,7 @@ export const whisperFileDir = `${RNFS.DocumentDirectoryPath}/voice-notes/models`
 export const whisperModelHost =
   'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
 
-export type WhisperModel = 'small';
+export type WhisperModel = 'tiny' | 'base' | 'small' | 'medium' | 'large';
 
 export const createDir = async (
   log?: (message: string) => void,

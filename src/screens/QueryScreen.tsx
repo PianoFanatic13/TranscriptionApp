@@ -12,7 +12,11 @@ import {
 } from 'react-native';
 import {queryNotes, SourceChunk} from '../api';
 
-const QueryScreen = () => {
+interface Props {
+  userId: string;
+}
+
+const QueryScreen = ({userId}: Props) => {
   const [queryText, setQueryText] = useState('');
   const [answer, setAnswer] = useState('');
   const [sources, setSources] = useState<SourceChunk[]>([]);
@@ -31,7 +35,7 @@ const QueryScreen = () => {
     setErrorMessage('');
 
     try {
-      const result = await queryNotes(trimmed);
+      const result = await queryNotes(trimmed, userId);
       setAnswer(result.answer);
       setSources(result.sources);
     } catch (error) {

@@ -9,17 +9,17 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import RNFS from 'react-native-fs';
 import AudioRecord from 'react-native-audio-record';
-import Sound from 'react-native-sound';
 import {WhisperContext, initWhisper} from 'whisper.rn';
 import NetInfo from '@react-native-community/netinfo';
 import {downloadModel} from '../../WhisperUtils';
 import {pingHealth} from '../api';
-import {enqueueNote, flushQueue, getOrCreateUserId} from '../queue';
+import {enqueueNote, flushQueue} from '../queue';
 
 type PermissionState = 'checking' | 'granted' | 'denied';
 type RecorderState = 'idle' | 'recording' | 'recorded' | 'error';
@@ -56,7 +56,11 @@ const formatDuration = (durationMs: number) => {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 };
 
-const RecordScreen = () => {
+interface Props {
+  userId: string;
+}
+
+const RecordScreen = ({userId}: Props) => {
   const [permissionState, setPermissionState] =
     useState<PermissionState>('checking');
   const [recorderState, setRecorderState] = useState<RecorderState>('idle');
@@ -65,17 +69,19 @@ const RecordScreen = () => {
   const [recordedSizeBytes, setRecordedSizeBytes] = useState<number | null>(null);
   const [recordedDurationMs, setRecordedDurationMs] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [isPreparingModel, setIsPreparingModel] = useState(false);
   const [modelProgress, setModelProgress] = useState<number | null>(null);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcribeProgress, setTranscribeProgress] = useState<number | null>(null);
   const [transcription, setTranscription] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [editDraft, setEditDraft] = useState('');
+  const [submittedAt, setSubmittedAt] = useState<number | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const recordingStartedAtRef = useRef<number | null>(null);
   const expectedOutputPathRef = useRef<string | null>(null);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const soundRef = useRef<Sound | null>(null);
   const whisperContextRef = useRef<WhisperContext | null>(null);
   const pulseValue = useRef(new Animated.Value(0)).current;
 
@@ -111,7 +117,17 @@ const RecordScreen = () => {
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
       if (state.isConnected) {
-        flushQueue().catch(() => {});
+        flushQueue()
+          .then(({sent}) => {
+            if (sent > 0) {
+              setStatusMessage(
+                sent === 1
+                  ? 'Queued note synced.'
+                  : `${sent} queued notes synced.`,
+              );
+            }
+          })
+          .catch(() => {});
       }
     });
     return unsubscribe;
@@ -154,14 +170,6 @@ const RecordScreen = () => {
     return () => {
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
-      }
-      if (soundRef.current) {
-        soundRef.current.stop(() => {
-          if (soundRef.current) {
-            soundRef.current.release();
-            soundRef.current = null;
-          }
-        });
       }
       if (whisperContextRef.current) {
         void whisperContextRef.current.release().catch(() => {});
@@ -219,16 +227,12 @@ const RecordScreen = () => {
         const {result} = await promise;
         const cleaned = result.trim();
         setTranscription(cleaned.length ? cleaned : '(No speech detected)');
+        setEditDraft('');
+        setIsEditing(false);
+        setSubmittedAt(null);
 
         if (cleaned.length) {
-          const userId = await getOrCreateUserId();
-          await enqueueNote({user_id: userId, raw_transcript: cleaned});
-          const {sent} = await flushQueue();
-          setStatusMessage(
-            sent > 0
-              ? 'Note saved and synced.'
-              : 'Note saved locally — will sync when connected.',
-          );
+          setStatusMessage('Transcription ready. Edit if needed, then save.');
         } else {
           setStatusMessage('Recording saved. No speech detected.');
         }
@@ -274,26 +278,12 @@ const RecordScreen = () => {
     return granted;
   }, []);
 
-  const stopPlayback = useCallback(() => {
-    if (!soundRef.current) {
-      return;
-    }
-    soundRef.current.stop(() => {
-      if (soundRef.current) {
-        soundRef.current.release();
-        soundRef.current = null;
-      }
-      setIsPlaying(false);
-    });
-  }, []);
-
   const startRecording = useCallback(async () => {
     if (recorderState === 'recording' || isTranscribing || isPreparingModel) {
       return;
     }
 
     try {
-      stopPlayback();
       setStatusMessage('Checking microphone permission...');
       const granted = await requestAudioPermission();
       if (!granted) {
@@ -350,7 +340,6 @@ const RecordScreen = () => {
     isTranscribing,
     recorderState,
     requestAudioPermission,
-    stopPlayback,
   ]);
 
   const stopRecording = useCallback(async () => {
@@ -420,50 +409,49 @@ const RecordScreen = () => {
     }
   }, [recorderState, transcribeRecording]);
 
-  const playOrStopLastRecording = useCallback(() => {
-    if (
-      !recordedFilePath ||
-      recorderState === 'recording' ||
-      isTranscribing ||
-      isPreparingModel
-    ) {
+  const handleEdit = useCallback(() => {
+    setEditDraft(transcription);
+    setIsEditing(true);
+  }, [transcription]);
+
+  const handleCancelEdit = useCallback(() => {
+    setEditDraft('');
+    setIsEditing(false);
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    if (isSubmitting) {
+      return;
+    }
+    const candidate = (isEditing ? editDraft : transcription).trim();
+    if (!candidate.length) {
+      setStatusMessage('Cannot save an empty transcription.');
       return;
     }
 
-    if (isPlaying) {
-      stopPlayback();
-      setStatusMessage('Playback stopped.');
-      return;
-    }
-
-    Sound.setCategory('Playback');
-    const player = new Sound(recordedFilePath, '', error => {
-      if (error) {
-        setStatusMessage('Could not play this recording.');
-        return;
+    setIsSubmitting(true);
+    try {
+      if (isEditing) {
+        setTranscription(candidate);
+        setIsEditing(false);
+        setEditDraft('');
       }
-
-      soundRef.current = player;
-      setIsPlaying(true);
-      setStatusMessage('Playing recording...');
-
-      player.play(success => {
-        setIsPlaying(false);
-        if (soundRef.current) {
-          soundRef.current.release();
-          soundRef.current = null;
-        }
-        setStatusMessage(success ? 'Playback finished.' : 'Playback failed.');
-      });
-    });
-  }, [
-    isPlaying,
-    isPreparingModel,
-    isTranscribing,
-    recordedFilePath,
-    recorderState,
-    stopPlayback,
-  ]);
+      await enqueueNote({user_id: userId, raw_transcript: candidate});
+      const {sent} = await flushQueue();
+      setSubmittedAt(Date.now());
+      setStatusMessage(
+        sent > 0
+          ? 'Note saved and synced.'
+          : 'Note saved locally — will sync when connected.',
+      );
+    } catch (error) {
+      setStatusMessage(
+        `Failed to save note: ${(error as Error).message || 'Unknown error'}`,
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [editDraft, isEditing, isSubmitting, transcription, userId]);
 
   const permissionText =
     permissionState === 'checking'
@@ -566,17 +554,6 @@ const RecordScreen = () => {
           <Text style={styles.savedText}>Recording has been saved.</Text>
         ) : null}
 
-        {recordedFilePath && recorderState !== 'recording' ? (
-          <TouchableOpacity
-            style={styles.playButton}
-            onPress={playOrStopLastRecording}
-            activeOpacity={0.86}>
-            <Text style={styles.playButtonText}>
-              {isPlaying ? 'Stop Playback' : 'Replay Last Recording'}
-            </Text>
-          </TouchableOpacity>
-        ) : null}
-
         <Text style={styles.statusText}>{statusMessage}</Text>
         {transcribeProgressText ? (
           <Text style={styles.statusText}>{transcribeProgressText}</Text>
@@ -585,9 +562,62 @@ const RecordScreen = () => {
 
         <View style={styles.transcriptCard}>
           <Text style={styles.transcriptTitle}>Transcription</Text>
-          <Text style={styles.transcriptText}>
-            {transcription || 'No transcription yet.'}
-          </Text>
+          {isEditing ? (
+            <TextInput
+              style={styles.transcriptInput}
+              value={editDraft}
+              onChangeText={setEditDraft}
+              multiline
+              placeholder="Edit transcription..."
+              placeholderTextColor="#475569"
+              editable={!isSubmitting}
+              textAlignVertical="top"
+            />
+          ) : (
+            <Text style={styles.transcriptText}>
+              {transcription || 'No transcription yet.'}
+            </Text>
+          )}
+
+          {transcription && submittedAt === null ? (
+            <View style={styles.transcriptButtonsRow}>
+              {isEditing ? (
+                <TouchableOpacity
+                  style={[
+                    styles.smallButton,
+                    isSubmitting ? styles.smallButtonDisabled : null,
+                  ]}
+                  onPress={handleCancelEdit}
+                  disabled={isSubmitting}
+                  activeOpacity={0.86}>
+                  <Text style={styles.smallButtonText}>Cancel</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.smallButton}
+                  onPress={handleEdit}
+                  activeOpacity={0.86}>
+                  <Text style={styles.smallButtonText}>Edit</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={[
+                  styles.saveButton,
+                  isSubmitting ? styles.smallButtonDisabled : null,
+                ]}
+                onPress={handleSave}
+                disabled={isSubmitting}
+                activeOpacity={0.86}>
+                <Text style={styles.saveButtonText}>
+                  {isSubmitting ? 'Saving...' : 'Save'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
+          {submittedAt !== null ? (
+            <Text style={styles.submittedText}>✓ Submitted</Text>
+          ) : null}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -681,18 +711,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  playButton: {
-    marginTop: 14,
-    backgroundColor: '#334155',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-  },
-  playButtonText: {
-    color: '#f8fafc',
-    fontWeight: '700',
-    fontSize: 15,
-  },
   statusText: {
     marginTop: 16,
     color: '#cbd5e1',
@@ -724,6 +742,52 @@ const styles = StyleSheet.create({
     color: '#cbd5e1',
     fontSize: 13,
     lineHeight: 18,
+  },
+  transcriptInput: {
+    color: '#cbd5e1',
+    fontSize: 13,
+    lineHeight: 18,
+    backgroundColor: '#0f172a',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minHeight: 100,
+  },
+  transcriptButtonsRow: {
+    flexDirection: 'row',
+    marginTop: 12,
+  },
+  smallButton: {
+    backgroundColor: '#334155',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginRight: 8,
+  },
+  smallButtonDisabled: {
+    opacity: 0.5,
+  },
+  smallButtonText: {
+    color: '#f8fafc',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  saveButton: {
+    backgroundColor: '#1d4ed8',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  saveButtonText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  submittedText: {
+    marginTop: 10,
+    color: '#22c55e',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });
 
