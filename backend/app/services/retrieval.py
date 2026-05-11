@@ -9,26 +9,28 @@ from app.db import get_client
 async def vector_search(
     embedding: list[float],
     candidate_k: int,
+    user_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Cosine similarity search via pgvector HNSW index."""
     client = await get_client()
-    result = await client.rpc(
-        "match_chunks_vector",
-        {"query_embedding": embedding, "match_count": candidate_k},
-    ).execute()
+    params: dict[str, Any] = {"query_embedding": embedding, "match_count": candidate_k}
+    if user_id:
+        params["p_user_id"] = user_id
+    result = await client.rpc("match_chunks_vector", params).execute()
     return result.data
 
 
 async def bm25_search(
     query: str,
     candidate_k: int,
+    user_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Full-text search via tsvector GIN index."""
     client = await get_client()
-    result = await client.rpc(
-        "match_chunks_bm25",
-        {"query_text": query, "match_count": candidate_k},
-    ).execute()
+    params: dict[str, Any] = {"query_text": query, "match_count": candidate_k}
+    if user_id:
+        params["p_user_id"] = user_id
+    result = await client.rpc("match_chunks_bm25", params).execute()
     return result.data
 
 
@@ -63,11 +65,12 @@ async def hybrid_search(
     query: str,
     embedding: list[float],
     top_k: int = 10,
+    user_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Run vector and BM25 searches in parallel, fuse with RRF."""
     candidate_k = settings.retrieval_candidate_k
     vector_results, bm25_results = await asyncio.gather(
-        vector_search(embedding, candidate_k),
-        bm25_search(query, candidate_k),
+        vector_search(embedding, candidate_k, user_id),
+        bm25_search(query, candidate_k, user_id),
     )
     return rrf_fuse(vector_results, bm25_results, k=settings.rrf_k, top_n=top_k)

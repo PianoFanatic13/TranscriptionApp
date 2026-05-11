@@ -25,7 +25,7 @@ async def embed_transcript(payload: IngestRequest) -> IngestResponse:
 @router.post("/query", response_model=QueryResponse)
 async def query_notes(payload: QueryRequest) -> QueryResponse:
     query_embedding = await embeddings_service.embed_query(payload.query)
-    chunks = await retrieval.hybrid_search(payload.query, query_embedding, payload.top_k)
+    chunks = await retrieval.hybrid_search(payload.query, query_embedding, payload.top_k, payload.user_id)
     answer = await synthesis.synthesise(payload.query, chunks)
     sources = [
         SourceChunk(

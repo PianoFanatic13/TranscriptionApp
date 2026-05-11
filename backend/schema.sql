@@ -53,7 +53,8 @@ grant all on public.chunks to service_role;
 
 create or replace function match_chunks_vector(
     query_embedding vector(384),
-    match_count     int default 50
+    match_count     int default 50,
+    p_user_id       text default null
 )
 returns table (
     id          uuid,
@@ -75,6 +76,7 @@ as $$
         created_at,
         1 - (embedding <=> query_embedding) as similarity
     from chunks
+    where (p_user_id is null or user_id = p_user_id)
     order by embedding <=> query_embedding
     limit match_count;
 $$;
@@ -82,7 +84,8 @@ $$;
 
 create or replace function match_chunks_bm25(
     query_text  text,
-    match_count int default 50
+    match_count int default 50,
+    p_user_id   text default null
 )
 returns table (
     id          uuid,
@@ -105,6 +108,7 @@ as $$
         ts_rank(ts_content, websearch_to_tsquery('english', query_text)) as rank
     from chunks
     where ts_content @@ websearch_to_tsquery('english', query_text)
+      and (p_user_id is null or user_id = p_user_id)
     order by rank desc
     limit match_count;
 $$;
