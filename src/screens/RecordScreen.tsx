@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   Animated,
   Easing,
@@ -20,6 +20,7 @@ import NetInfo from '@react-native-community/netinfo';
 import {downloadModel} from '../../WhisperUtils';
 import {pingHealth} from '../api';
 import {enqueueNote, flushQueue, getOrCreateUserId} from '../queue';
+import {saveLocalNote} from '../storage';
 
 type PermissionState = 'checking' | 'granted' | 'denied';
 type RecorderState = 'idle' | 'recording' | 'recorded' | 'error';
@@ -40,12 +41,8 @@ const sanitizePath = (value: string) => value.replace('file://', '');
 
 const normalizePath = (value: string) => {
   const sanitized = sanitizePath(value);
-  if (sanitized.startsWith('/')) {
-    return sanitized;
-  }
-  if (/^[A-Za-z]:\\/.test(sanitized)) {
-    return sanitized;
-  }
+  if (sanitized.startsWith('/')) return sanitized;
+  if (/^[A-Za-z]:\\/.test(sanitized)) return sanitized;
   return `${RNFS.DocumentDirectoryPath}/${sanitized}`;
 };
 
@@ -56,13 +53,32 @@ const formatDuration = (durationMs: number) => {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 };
 
+// ── Icons ────────────────────────────────────────────────────────────────────
+
+const MicIcon = ({color = '#ffffff', size = 34}: {color?: string; size?: number}) => (
+  <View style={{width: size, height: size, alignItems: 'center', justifyContent: 'center'}}>
+    <View style={{
+      width: size * 0.36, height: size * 0.5,
+      borderRadius: size * 0.18, borderWidth: 2.5, borderColor: color,
+      marginBottom: 3,
+    }} />
+    <View style={{width: size * 0.6, height: 1.5, backgroundColor: color}} />
+    <View style={{width: 1.5, height: size * 0.16, backgroundColor: color}} />
+    <View style={{width: size * 0.36, height: 1.5, backgroundColor: color}} />
+  </View>
+);
+
+const StopIcon = ({color = '#ffffff', size = 24}: {color?: string; size?: number}) => (
+  <View style={{width: size, height: size, borderRadius: 5, backgroundColor: color}} />
+);
+
+// ── Component ────────────────────────────────────────────────────────────────
+
 const RecordScreen = () => {
-  const [permissionState, setPermissionState] =
-    useState<PermissionState>('checking');
+  const [permissionState, setPermissionState] = useState<PermissionState>('checking');
   const [recorderState, setRecorderState] = useState<RecorderState>('idle');
   const [statusMessage, setStatusMessage] = useState('Ready to record.');
   const [recordedFilePath, setRecordedFilePath] = useState<string | null>(null);
-  const [recordedSizeBytes, setRecordedSizeBytes] = useState<number | null>(null);
   const [recordedDurationMs, setRecordedDurationMs] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -71,6 +87,7 @@ const RecordScreen = () => {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcribeProgress, setTranscribeProgress] = useState<number | null>(null);
   const [transcription, setTranscription] = useState('');
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'pending' | null>(null);
 
   const recordingStartedAtRef = useRef<number | null>(null);
   const expectedOutputPathRef = useRef<string | null>(null);
@@ -100,14 +117,12 @@ const RecordScreen = () => {
   useEffect(() => {
     ensureStorageLayout().catch(() => {
       setRecorderState('error');
-      setStatusMessage('Failed to prepare internal app folders.');
+      setStatusMessage('Failed to prepare storage.');
     });
     checkPermission();
-    // Wake the Render server in the background — no await, no UI block.
     pingHealth();
   }, [checkPermission, ensureStorageLayout]);
 
-  // Flush any queued notes whenever the device regains connectivity.
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
       if (state.isConnected) {
@@ -152,9 +167,7 @@ const RecordScreen = () => {
 
   useEffect(() => {
     return () => {
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current);
-      }
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       if (soundRef.current) {
         soundRef.current.stop(() => {
           if (soundRef.current) {
@@ -171,13 +184,11 @@ const RecordScreen = () => {
   }, []);
 
   const loadWhisperModel = useCallback(async (): Promise<WhisperContext> => {
-    if (whisperContextRef.current) {
-      return whisperContextRef.current;
-    }
+    if (whisperContextRef.current) return whisperContextRef.current;
 
     setIsPreparingModel(true);
     setModelProgress(0);
-    setStatusMessage('Preparing Whisper base model...');
+    setStatusMessage('Loading transcription model…');
 
     try {
       const modelPath = await downloadModel('base', progress => {
@@ -200,10 +211,10 @@ const RecordScreen = () => {
   }, []);
 
   const transcribeRecording = useCallback(
-    async (filePath: string) => {
+    async (filePath: string, durationMs: number) => {
       setIsTranscribing(true);
       setTranscribeProgress(0);
-      setStatusMessage('Transcribing with Whisper base...');
+      setStatusMessage('Transcribing your recording…');
 
       try {
         const context = await loadWhisperModel();
@@ -222,20 +233,28 @@ const RecordScreen = () => {
 
         if (cleaned.length) {
           const userId = await getOrCreateUserId();
+          await saveLocalNote({
+            createdAt: Date.now(),
+            transcript: cleaned,
+            durationMs,
+            audioPath: filePath,
+          });
           await enqueueNote({user_id: userId, raw_transcript: cleaned});
           const {sent} = await flushQueue();
-          setStatusMessage(
-            sent > 0
-              ? 'Note saved and synced.'
-              : 'Note saved locally — will sync when connected.',
-          );
+          if (sent > 0) {
+            setSyncStatus('synced');
+            setStatusMessage('Note saved and synced.');
+          } else {
+            setSyncStatus('pending');
+            setStatusMessage('Note saved — will sync when connected.');
+          }
         } else {
-          setStatusMessage('Recording saved. No speech detected.');
+          setSyncStatus(null);
+          setStatusMessage('No speech detected. Try recording again.');
         }
       } catch (error) {
-        setStatusMessage(
-          `Transcription failed: ${(error as Error).message || 'Unknown error'}`,
-        );
+        setSyncStatus(null);
+        setStatusMessage(`Transcription failed: ${(error as Error).message || 'Unknown error'}`);
       } finally {
         setIsTranscribing(false);
       }
@@ -261,9 +280,8 @@ const RecordScreen = () => {
     const result = await PermissionsAndroid.request(
       PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
       {
-        title: 'Microphone Permission',
-        message:
-          'This app needs access to your microphone to record voice notes.',
+        title: 'Microphone access',
+        message: 'EarthRanger needs your microphone to record field observations.',
         buttonPositive: 'Allow',
         buttonNegative: 'Deny',
       },
@@ -275,9 +293,7 @@ const RecordScreen = () => {
   }, []);
 
   const stopPlayback = useCallback(() => {
-    if (!soundRef.current) {
-      return;
-    }
+    if (!soundRef.current) return;
     soundRef.current.stop(() => {
       if (soundRef.current) {
         soundRef.current.release();
@@ -288,17 +304,14 @@ const RecordScreen = () => {
   }, []);
 
   const startRecording = useCallback(async () => {
-    if (recorderState === 'recording' || isTranscribing || isPreparingModel) {
-      return;
-    }
+    if (recorderState === 'recording' || isTranscribing || isPreparingModel) return;
 
     try {
       stopPlayback();
-      setStatusMessage('Checking microphone permission...');
       const granted = await requestAudioPermission();
       if (!granted) {
         setRecorderState('idle');
-        setStatusMessage('Microphone permission denied. Cannot start recording.');
+        setStatusMessage('Microphone access denied.');
         return;
       }
 
@@ -320,29 +333,23 @@ const RecordScreen = () => {
       expectedOutputPathRef.current = targetPath;
       recordingStartedAtRef.current = Date.now();
       setElapsedMs(0);
+      setSyncStatus(null);
 
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current);
-      }
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       recordingTimerRef.current = setInterval(() => {
         const startedAt = recordingStartedAtRef.current;
-        if (startedAt) {
-          setElapsedMs(Date.now() - startedAt);
-        }
+        if (startedAt) setElapsedMs(Date.now() - startedAt);
       }, 200);
 
       setRecordedFilePath(null);
-      setRecordedSizeBytes(null);
       setRecordedDurationMs(null);
       setTranscription('');
       setTranscribeProgress(null);
       setRecorderState('recording');
-      setStatusMessage('Recording in progress...');
+      setStatusMessage('Recording your observation…');
     } catch (error) {
       setRecorderState('error');
-      setStatusMessage(
-        `Failed to start recording: ${(error as Error).message || 'Unknown error'}`,
-      );
+      setStatusMessage(`Could not start: ${(error as Error).message || 'Unknown error'}`);
     }
   }, [
     ensureStorageLayout,
@@ -354,17 +361,13 @@ const RecordScreen = () => {
   ]);
 
   const stopRecording = useCallback(async () => {
-    if (recorderState !== 'recording') {
-      return;
-    }
+    if (recorderState !== 'recording') return;
 
     try {
-      setStatusMessage('Stopping recorder...');
+      setStatusMessage('Processing…');
 
       const rawPath = await AudioRecord.stop();
-      if (!rawPath) {
-        throw new Error('Recorder did not return an output path.');
-      }
+      if (!rawPath) throw new Error('Recorder did not return an output path.');
 
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
@@ -376,44 +379,32 @@ const RecordScreen = () => {
       let finalPath = sourcePath;
 
       if (expectedPath && sourcePath !== expectedPath) {
-        if (await RNFS.exists(expectedPath)) {
-          await RNFS.unlink(expectedPath);
-        }
+        if (await RNFS.exists(expectedPath)) await RNFS.unlink(expectedPath);
         await RNFS.moveFile(sourcePath, expectedPath);
         finalPath = expectedPath;
       }
 
-      const exists = await RNFS.exists(finalPath);
-      if (!exists) {
-        throw new Error('Recorded file was not found on disk.');
-      }
+      if (!(await RNFS.exists(finalPath))) throw new Error('Recorded file not found.');
 
       const stats = await RNFS.stat(finalPath);
-      const size = Number(stats.size || 0);
-      if (size <= 0) {
-        throw new Error('Recorded file is empty. Please record again.');
-      }
+      if (Number(stats.size || 0) <= 0) throw new Error('Recording was empty. Please try again.');
 
       const startedAt = recordingStartedAtRef.current;
       const durationMs = startedAt ? Date.now() - startedAt : 0;
 
       setElapsedMs(durationMs);
       setRecordedFilePath(finalPath);
-      setRecordedSizeBytes(size);
       setRecordedDurationMs(durationMs);
       setRecorderState('recorded');
-      setStatusMessage('Recording has been saved. Starting transcription...');
 
-      await transcribeRecording(finalPath);
+      await transcribeRecording(finalPath, durationMs);
     } catch (error) {
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
         recordingTimerRef.current = null;
       }
       setRecorderState('error');
-      setStatusMessage(
-        `Failed to stop recording: ${(error as Error).message || 'Unknown error'}`,
-      );
+      setStatusMessage(`Recording failed: ${(error as Error).message || 'Unknown error'}`);
     } finally {
       recordingStartedAtRef.current = null;
       expectedOutputPathRef.current = null;
@@ -421,14 +412,7 @@ const RecordScreen = () => {
   }, [recorderState, transcribeRecording]);
 
   const playOrStopLastRecording = useCallback(() => {
-    if (
-      !recordedFilePath ||
-      recorderState === 'recording' ||
-      isTranscribing ||
-      isPreparingModel
-    ) {
-      return;
-    }
+    if (!recordedFilePath || recorderState === 'recording' || isTranscribing || isPreparingModel) return;
 
     if (isPlaying) {
       stopPlayback();
@@ -442,40 +426,22 @@ const RecordScreen = () => {
         setStatusMessage('Could not play this recording.');
         return;
       }
-
       soundRef.current = player;
       setIsPlaying(true);
-      setStatusMessage('Playing recording...');
-
+      setStatusMessage('Playing back…');
       player.play(success => {
         setIsPlaying(false);
         if (soundRef.current) {
           soundRef.current.release();
           soundRef.current = null;
         }
-        setStatusMessage(success ? 'Playback finished.' : 'Playback failed.');
+        setStatusMessage(success ? 'Playback complete.' : 'Playback failed.');
       });
     });
-  }, [
-    isPlaying,
-    isPreparingModel,
-    isTranscribing,
-    recordedFilePath,
-    recorderState,
-    stopPlayback,
-  ]);
-
-  const permissionText =
-    permissionState === 'checking'
-      ? 'Checking microphone permission...'
-      : permissionState === 'granted'
-      ? 'Microphone permission granted.'
-      : 'Microphone permission not granted yet.';
+  }, [isPlaying, isPreparingModel, isTranscribing, recordedFilePath, recorderState, stopPlayback]);
 
   const onRecordButtonPress = useCallback(() => {
-    if (isPreparingModel || isTranscribing) {
-      return;
-    }
+    if (isPreparingModel || isTranscribing) return;
     if (recorderState === 'recording') {
       void stopRecording();
       return;
@@ -483,59 +449,80 @@ const RecordScreen = () => {
     void startRecording();
   }, [isPreparingModel, isTranscribing, recorderState, startRecording, stopRecording]);
 
-  const primaryText = isPreparingModel
-    ? 'Preparing Whisper base model...'
-    : isTranscribing
-    ? 'Transcribing with Whisper base...'
-    : recorderState === 'recording'
-    ? 'Tap to stop recording'
-    : 'Tap to start recording';
-
   const pulseScale = pulseValue.interpolate({
     inputRange: [0, 1],
-    outputRange: [1, 1.28],
+    outputRange: [1, 1.32],
   });
 
   const pulseOpacity = pulseValue.interpolate({
     inputRange: [0, 1],
-    outputRange: [0.42, 0.08],
+    outputRange: [0.3, 0.0],
   });
 
-  const detailsText = useMemo(() => {
-    if (!recordedFilePath) {
-      return 'No recording captured yet.';
-    }
-    const duration =
-      recordedDurationMs !== null ? formatDuration(recordedDurationMs) : '00:00';
-    return `Path: ${recordedFilePath}\nSize: ${recordedSizeBytes ?? 0} bytes\nDuration: ${duration}`;
-  }, [recordedDurationMs, recordedFilePath, recordedSizeBytes]);
+  const isRecording = recorderState === 'recording';
+  const isBusy = isPreparingModel || isTranscribing;
 
-  const modelProgressText = useMemo(() => {
-    if (modelProgress === null) {
-      return 'Model: base';
-    }
-    return `Model: base (${Math.round(modelProgress * 100)}%)`;
-  }, [modelProgress]);
-
-  const transcribeProgressText = useMemo(() => {
-    if (!isTranscribing || transcribeProgress === null) {
-      return null;
-    }
-    return `Transcribing: ${Math.round(transcribeProgress)}%`;
-  }, [isTranscribing, transcribeProgress]);
+  const progressValue = isPreparingModel
+    ? (modelProgress ?? 0)
+    : isTranscribing
+    ? (transcribeProgress ?? 0) / 100
+    : 0;
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0f172a" />
+      <StatusBar barStyle="dark-content" backgroundColor="#f7f5f0" />
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.screen}
-        showsVerticalScrollIndicator={true}>
-        <Text style={styles.title}>Voice Notes</Text>
-        <Text style={styles.subtitle}>{permissionText}</Text>
+        showsVerticalScrollIndicator={false}>
 
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={styles.headerBadge}>
+            <Text style={styles.headerBadgeText}>ER</Text>
+          </View>
+          <View style={{flex: 1}}>
+            <Text style={styles.headerTitle}>Field Notes</Text>
+            <Text style={styles.headerSub}>Record & transcribe</Text>
+          </View>
+          {syncStatus && (
+            <View style={[
+              styles.syncBadge,
+              syncStatus === 'synced' ? styles.syncBadgeSynced : styles.syncBadgePending,
+            ]}>
+              <Text style={[
+                styles.syncBadgeText,
+                syncStatus === 'synced' ? styles.syncBadgeTextSynced : styles.syncBadgeTextPending,
+              ]}>
+                {syncStatus === 'synced' ? '✓ Synced' : '⟳ Pending'}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Status pill */}
+        <View style={[
+          styles.statusPill,
+          isRecording && styles.statusPillRecording,
+          isBusy && styles.statusPillBusy,
+        ]}>
+          {isRecording && (
+            <Animated.View style={[styles.statusDot, {opacity: pulseOpacity}]} />
+          )}
+          <Text
+            style={[
+              styles.statusPillText,
+              isRecording && styles.statusPillTextRec,
+              isBusy && styles.statusPillTextBusy,
+            ]}
+            numberOfLines={1}>
+            {statusMessage}
+          </Text>
+        </View>
+
+        {/* Mic button */}
         <View style={styles.micArea}>
-          {recorderState === 'recording' ? (
+          {isRecording && (
             <Animated.View
               pointerEvents="none"
               style={[
@@ -543,187 +530,324 @@ const RecordScreen = () => {
                 {opacity: pulseOpacity, transform: [{scale: pulseScale}]},
               ]}
             />
-          ) : null}
-
+          )}
           <TouchableOpacity
-            activeOpacity={0.86}
+            activeOpacity={0.82}
+            disabled={isBusy}
             style={[
               styles.micButton,
-              recorderState === 'recording' ? styles.micButtonRecording : null,
+              isRecording && styles.micButtonRecording,
+              isBusy && styles.micButtonBusy,
             ]}
             onPress={onRecordButtonPress}>
-            <Text style={styles.micText}>
-              {recorderState === 'recording' ? 'REC' : 'MIC'}
-            </Text>
+            {isRecording ? (
+              <StopIcon color="#ffffff" size={26} />
+            ) : (
+              <MicIcon color="#ffffff" size={36} />
+            )}
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.primaryText}>{primaryText}</Text>
-        <Text style={styles.timer}>{formatDuration(elapsedMs)}</Text>
-        <Text style={styles.modelText}>{modelProgressText}</Text>
+        {/* Timer */}
+        <Text style={[styles.timer, isRecording && styles.timerRecording]}>
+          {formatDuration(elapsedMs)}
+        </Text>
+        <Text style={styles.timerLabel}>
+          {isRecording
+            ? 'Recording'
+            : isBusy
+            ? isPreparingModel
+              ? 'Loading model'
+              : 'Transcribing'
+            : recorderState === 'recorded'
+            ? 'Complete'
+            : 'Standby'}
+        </Text>
 
-        {recorderState === 'recorded' ? (
-          <Text style={styles.savedText}>Recording has been saved.</Text>
-        ) : null}
+        {/* Progress bar */}
+        {isBusy && (
+          <View style={styles.progressTrack}>
+            <View
+              style={[
+                styles.progressFill,
+                {width: `${Math.round(progressValue * 100)}%`},
+              ]}
+            />
+          </View>
+        )}
 
-        {recordedFilePath && recorderState !== 'recording' ? (
-          <TouchableOpacity
-            style={styles.playButton}
-            onPress={playOrStopLastRecording}
-            activeOpacity={0.86}>
-            <Text style={styles.playButtonText}>
-              {isPlaying ? 'Stop Playback' : 'Replay Last Recording'}
+        {/* Transcript card */}
+        {(transcription || recorderState === 'recorded') ? (
+          <View style={styles.transcriptCard}>
+            <View style={styles.transcriptHeader}>
+              <Text style={styles.transcriptLabel}>Transcript</Text>
+              {!isTranscribing && transcription && (
+                <View style={styles.autoBadge}>
+                  <Text style={styles.autoBadgeText}>Auto</Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.transcriptText}>
+              {isTranscribing ? '…' : (transcription || '…')}
             </Text>
-          </TouchableOpacity>
+
+            {recordedFilePath && !isTranscribing && (
+              <View style={styles.cardActions}>
+                <TouchableOpacity
+                  style={styles.playBtn}
+                  onPress={playOrStopLastRecording}
+                  activeOpacity={0.8}>
+                  <Text style={styles.playBtnText}>
+                    {isPlaying ? '⏹  Stop' : '▶  Play back'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
         ) : null}
 
-        <Text style={styles.statusText}>{statusMessage}</Text>
-        {transcribeProgressText ? (
-          <Text style={styles.statusText}>{transcribeProgressText}</Text>
-        ) : null}
-        <Text style={styles.details}>{detailsText}</Text>
+        {/* Permission denied hint */}
+        {permissionState === 'denied' && (
+          <View style={styles.permissionHint}>
+            <Text style={styles.permissionHintText}>
+              Microphone access is required to record observations. Please grant
+              permission in your device settings.
+            </Text>
+          </View>
+        )}
 
-        <View style={styles.transcriptCard}>
-          <Text style={styles.transcriptTitle}>Transcription</Text>
-          <Text style={styles.transcriptText}>
-            {transcription || 'No transcription yet.'}
+        {recorderState === 'recorded' && recordedDurationMs !== null && (
+          <Text style={styles.durationLine}>
+            Duration · {formatDuration(recordedDurationMs)}
           </Text>
-        </View>
+        )}
+
       </ScrollView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0f172a',
-  },
-  scrollView: {
-    flex: 1,
-  },
+  container: {flex: 1, backgroundColor: '#f7f5f0'},
+  scrollView: {flex: 1},
   screen: {
     flexGrow: 1,
+    paddingHorizontal: 16,
+    paddingBottom: 32,
+  },
+
+  // ── Header ──
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.08)',
+    marginBottom: 16,
+    gap: 12,
+  },
+  headerBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#2d6a4f',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 24,
   },
-  title: {
-    fontSize: 34,
-    fontWeight: '800',
-    color: '#e2e8f0',
-    letterSpacing: 0.5,
-  },
-  subtitle: {
-    marginTop: 8,
-    color: '#94a3b8',
-    fontSize: 14,
-  },
-  micArea: {
-    marginTop: 30,
-    width: 250,
-    height: 250,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pulseRing: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: '#ef4444',
-  },
-  micButton: {
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: '#1d4ed8',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#1d4ed8',
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    shadowOffset: {width: 0, height: 6},
-    elevation: 8,
-  },
-  micButtonRecording: {
-    backgroundColor: '#dc2626',
-    shadowColor: '#dc2626',
-  },
-  micText: {
-    color: '#ffffff',
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: 1,
-  },
-  primaryText: {
-    marginTop: 16,
-    color: '#e2e8f0',
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  timer: {
-    marginTop: 8,
-    color: '#f8fafc',
-    fontSize: 40,
-    fontWeight: '800',
-    letterSpacing: 1,
-  },
-  modelText: {
-    marginTop: 8,
-    color: '#94a3b8',
-    fontSize: 13,
-  },
-  savedText: {
-    marginTop: 10,
-    color: '#22c55e',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  playButton: {
-    marginTop: 14,
-    backgroundColor: '#334155',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-  },
-  playButtonText: {
-    color: '#f8fafc',
-    fontWeight: '700',
-    fontSize: 15,
-  },
-  statusText: {
-    marginTop: 16,
-    color: '#cbd5e1',
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  details: {
-    marginTop: 12,
-    color: '#94a3b8',
+  headerBadgeText: {
     fontSize: 12,
-    lineHeight: 18,
-    textAlign: 'center',
+    fontWeight: '900',
+    color: '#ffffff',
+    letterSpacing: 0.8,
   },
-  transcriptCard: {
-    marginTop: 16,
-    width: '100%',
-    backgroundColor: '#1e293b',
+  headerTitle: {fontSize: 17, fontWeight: '700', color: '#1a1a18'},
+  headerSub: {fontSize: 12, color: '#8a8a84', marginTop: 1},
+  syncBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+  },
+  syncBadgeSynced: {
+    backgroundColor: '#f0faf2',
+    borderColor: '#d8f3dc',
+  },
+  syncBadgePending: {
+    backgroundColor: '#fef3e2',
+    borderColor: '#fde8c4',
+  },
+  syncBadgeText: {fontSize: 11, fontWeight: '600'},
+  syncBadgeTextSynced: {color: '#2d6a4f'},
+  syncBadgeTextPending: {color: '#a0522d'},
+
+  // ── Status pill ──
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    marginBottom: 24,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
   },
-  transcriptTitle: {
-    color: '#f8fafc',
-    fontSize: 13,
+  statusPillRecording: {
+    backgroundColor: '#fdecea',
+    borderColor: '#f5c6c2',
+  },
+  statusPillBusy: {
+    backgroundColor: '#fef3e2',
+    borderColor: '#fde8c4',
+  },
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#c1392b',
+  },
+  statusPillText: {fontSize: 13, color: '#8a8a84', flex: 1},
+  statusPillTextRec: {color: '#c1392b'},
+  statusPillTextBusy: {color: '#a0522d'},
+
+  // ── Mic ──
+  micArea: {
+    alignSelf: 'center',
+    width: 200,
+    height: 200,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  pulseRing: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: '#c1392b',
+  },
+  micButton: {
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    backgroundColor: '#2d6a4f',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 4,
+    shadowColor: '#2d6a4f',
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    shadowOffset: {width: 0, height: 4},
+  },
+  micButtonRecording: {
+    backgroundColor: '#c1392b',
+    shadowColor: '#c1392b',
+  },
+  micButtonBusy: {opacity: 0.4},
+
+  // ── Timer ──
+  timer: {
+    textAlign: 'center',
+    fontSize: 48,
+    fontWeight: '300',
+    color: '#1a1a18',
+    letterSpacing: 3,
+  },
+  timerRecording: {color: '#c1392b'},
+  timerLabel: {
+    textAlign: 'center',
+    fontSize: 11,
+    color: '#8a8a84',
+    letterSpacing: 1.2,
+    marginTop: 4,
+    marginBottom: 20,
+  },
+
+  // ── Progress bar ──
+  progressTrack: {
+    height: 2,
+    backgroundColor: 'rgba(0,0,0,0.07)',
+    borderRadius: 2,
+    marginBottom: 20,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#40916c',
+    borderRadius: 2,
+  },
+
+  // ── Transcript card ──
+  transcriptCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+  },
+  transcriptHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  transcriptLabel: {
+    fontSize: 10,
     fontWeight: '700',
-    marginBottom: 6,
+    color: '#8a8a84',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
-  transcriptText: {
-    color: '#cbd5e1',
+  autoBadge: {
+    backgroundColor: '#f0faf2',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: '#d8f3dc',
+  },
+  autoBadgeText: {fontSize: 10, color: '#2d6a4f', fontWeight: '600'},
+  transcriptText: {fontSize: 15, color: '#52524e', lineHeight: 23},
+  cardActions: {
+    marginTop: 12,
+    flexDirection: 'row',
+  },
+  playBtn: {
+    flex: 1,
+    backgroundColor: '#f2efe8',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+  },
+  playBtnText: {fontSize: 13, color: '#52524e', fontWeight: '500'},
+
+  // ── Permission hint ──
+  permissionHint: {
+    marginTop: 16,
+    backgroundColor: '#fef3e2',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#fde8c4',
+  },
+  permissionHintText: {
     fontSize: 13,
-    lineHeight: 18,
+    color: '#a0522d',
+    lineHeight: 19,
+    textAlign: 'center',
+  },
+
+  // ── Duration ──
+  durationLine: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#8a8a84',
+    marginTop: 14,
+    letterSpacing: 0.3,
   },
 });
 

@@ -9,6 +9,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -34,19 +35,27 @@ const LoginScreen = ({onLogin}: Props) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0f172a" />
+      <StatusBar barStyle="dark-content" backgroundColor="#f7f5f0" />
       <KeyboardAvoidingView
         style={styles.inner}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <Text style={styles.title}>Field Notes</Text>
-        <Text style={styles.subtitle}>Enter your ranger username to begin.</Text>
 
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>ER</Text>
+        </View>
+
+        <Text style={styles.title}>EarthRanger</Text>
+        <Text style={styles.subtitle}>
+          Enter your ranger ID to access field notes.
+        </Text>
+
+        <Text style={styles.label}>Ranger ID</Text>
         <TextInput
           style={styles.input}
           value={username}
           onChangeText={setUsername}
-          placeholder="Username"
-          placeholderTextColor="#475569"
+          placeholder="e.g. ranger_42"
+          placeholderTextColor="#8a8a84"
           autoCapitalize="none"
           autoCorrect={false}
           returnKeyType="done"
@@ -64,7 +73,7 @@ const LoginScreen = ({onLogin}: Props) => {
           {saving ? (
             <ActivityIndicator color="#ffffff" />
           ) : (
-            <Text style={styles.buttonText}>Start</Text>
+            <Text style={styles.buttonText}>Continue</Text>
           )}
         </TouchableOpacity>
       </KeyboardAvoidingView>
@@ -75,42 +84,68 @@ const LoginScreen = ({onLogin}: Props) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#f7f5f0',
   },
   inner: {
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 32,
   },
+  badge: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: '#2d6a4f',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  badgeText: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#ffffff',
+    letterSpacing: 1,
+  },
   title: {
-    fontSize: 36,
+    fontSize: 32,
     fontWeight: '800',
-    color: '#e2e8f0',
-    letterSpacing: 0.5,
-    marginBottom: 8,
+    color: '#1a1a18',
+    letterSpacing: 0.3,
+    marginBottom: 6,
   },
   subtitle: {
-    fontSize: 15,
-    color: '#94a3b8',
+    fontSize: 14,
+    color: '#8a8a84',
     marginBottom: 32,
+    lineHeight: 20,
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#8a8a84',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 8,
   },
   input: {
-    backgroundColor: '#1e293b',
+    backgroundColor: '#ffffff',
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    color: '#e2e8f0',
+    color: '#1a1a18',
     fontSize: 16,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
   },
   button: {
-    backgroundColor: '#1d4ed8',
+    backgroundColor: '#2d6a4f',
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
   },
   buttonDisabled: {
-    opacity: 0.45,
+    opacity: 0.4,
   },
   buttonText: {
     color: '#ffffff',
