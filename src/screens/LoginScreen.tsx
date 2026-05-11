@@ -25,9 +25,7 @@ const LoginScreen = ({onLogin}: Props) => {
 
   const handleStart = async () => {
     const trimmed = username.trim();
-    if (!trimmed || saving) {
-      return;
-    }
+    if (!trimmed || saving) return;
     setSaving(true);
     await AsyncStorage.setItem(DEVICE_USER_ID_KEY, trimmed);
     onLogin(trimmed);
@@ -35,88 +33,119 @@ const LoginScreen = ({onLogin}: Props) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#f7f5f0" />
+      <StatusBar barStyle="light-content" backgroundColor="#2d6a4f" />
       <KeyboardAvoidingView
-        style={styles.inner}
+        style={styles.kav}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
 
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>ER</Text>
+        <View style={styles.hero}>
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>ER</Text>
+          </View>
+          <Text style={styles.heroTitle}>EarthRanger</Text>
+          <Text style={styles.heroSub}>Field Notes</Text>
         </View>
 
-        <Text style={styles.title}>EarthRanger</Text>
-        <Text style={styles.subtitle}>
-          Enter your ranger ID to access field notes.
-        </Text>
+        <View style={styles.form}>
+          <Text style={styles.formTitle}>Welcome back</Text>
+          <Text style={styles.formSub}>
+            Enter your ranger ID to access field observations.
+          </Text>
 
-        <Text style={styles.label}>Ranger ID</Text>
-        <TextInput
-          style={styles.input}
-          value={username}
-          onChangeText={setUsername}
-          placeholder="e.g. ranger_42"
-          placeholderTextColor="#8a8a84"
-          autoCapitalize="none"
-          autoCorrect={false}
-          returnKeyType="done"
-          onSubmitEditing={handleStart}
-        />
+          <Text style={styles.label}>Ranger ID</Text>
+          <TextInput
+            style={styles.input}
+            value={username}
+            onChangeText={setUsername}
+            placeholder="e.g. ranger_42"
+            placeholderTextColor="#8a8a84"
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="done"
+            onSubmitEditing={handleStart}
+          />
 
-        <TouchableOpacity
-          style={[
-            styles.button,
-            (!username.trim() || saving) ? styles.buttonDisabled : null,
-          ]}
-          onPress={handleStart}
-          activeOpacity={0.86}
-          disabled={!username.trim() || saving}>
-          {saving ? (
-            <ActivityIndicator color="#ffffff" />
-          ) : (
-            <Text style={styles.buttonText}>Continue</Text>
-          )}
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.button,
+              (!username.trim() || saving) && styles.buttonDisabled,
+            ]}
+            onPress={handleStart}
+            activeOpacity={0.86}
+            disabled={!username.trim() || saving}>
+            {saving ? (
+              <ActivityIndicator color="#ffffff" />
+            ) : (
+              <Text style={styles.buttonText}>Continue</Text>
+            )}
+          </TouchableOpacity>
+
+          <Text style={styles.version}>EarthRanger Field Notes · v1.0</Text>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f7f5f0',
-  },
-  inner: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 32,
-  },
-  badge: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
-    backgroundColor: '#2d6a4f',
+  container: {flex: 1, backgroundColor: '#2d6a4f'},
+  kav: {flex: 1},
+
+  hero: {
+    flex: 0.42,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 20,
+    paddingBottom: 12,
+  },
+  badge: {
+    width: 68,
+    height: 68,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
   },
   badgeText: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '900',
     color: '#ffffff',
-    letterSpacing: 1,
+    letterSpacing: 1.5,
   },
-  title: {
-    fontSize: 32,
+  heroTitle: {
+    fontSize: 28,
     fontWeight: '800',
-    color: '#1a1a18',
+    color: '#ffffff',
     letterSpacing: 0.3,
-    marginBottom: 6,
   },
-  subtitle: {
+  heroSub: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.65)',
+    marginTop: 5,
+    letterSpacing: 0.5,
+  },
+
+  form: {
+    flex: 0.58,
+    backgroundColor: '#f7f5f0',
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    paddingTop: 32,
+    paddingHorizontal: 28,
+    paddingBottom: 24,
+  },
+  formTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1a1a18',
+    marginBottom: 4,
+  },
+  formSub: {
     fontSize: 14,
     color: '#8a8a84',
-    marginBottom: 32,
+    marginBottom: 28,
     lineHeight: 20,
   },
   label: {
@@ -143,14 +172,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
+    marginBottom: 24,
   },
-  buttonDisabled: {
-    opacity: 0.4,
-  },
-  buttonText: {
-    color: '#ffffff',
-    fontWeight: '700',
-    fontSize: 16,
+  buttonDisabled: {opacity: 0.4},
+  buttonText: {color: '#ffffff', fontWeight: '700', fontSize: 16},
+  version: {
+    textAlign: 'center',
+    fontSize: 11,
+    color: '#b0aea8',
   },
 });
 

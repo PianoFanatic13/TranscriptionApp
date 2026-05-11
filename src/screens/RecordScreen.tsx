@@ -95,6 +95,9 @@ const RecordScreen = () => {
   const soundRef = useRef<Sound | null>(null);
   const whisperContextRef = useRef<WhisperContext | null>(null);
   const pulseValue = useRef(new Animated.Value(0)).current;
+  const barAnimValues = useRef(
+    Array.from({length: 5}, () => new Animated.Value(0)),
+  ).current;
 
   const ensureStorageLayout = useCallback(async () => {
     await ensureDir(VOICE_NOTES_ROOT);
@@ -164,6 +167,39 @@ const RecordScreen = () => {
       pulseValue.setValue(0);
     };
   }, [pulseValue, recorderState]);
+
+  useEffect(() => {
+    if (recorderState !== 'recording') {
+      barAnimValues.forEach(v => {
+        v.stopAnimation();
+        v.setValue(0);
+      });
+      return;
+    }
+    const staggered = Animated.stagger(
+      55,
+      barAnimValues.map(v =>
+        Animated.loop(
+          Animated.sequence([
+            Animated.timing(v, {
+              toValue: 1,
+              duration: 360,
+              easing: Easing.inOut(Easing.ease),
+              useNativeDriver: true,
+            }),
+            Animated.timing(v, {
+              toValue: 0.12,
+              duration: 360,
+              easing: Easing.inOut(Easing.ease),
+              useNativeDriver: true,
+            }),
+          ]),
+        ),
+      ),
+    );
+    staggered.start();
+    return () => staggered.stop();
+  }, [barAnimValues, recorderState]);
 
   useEffect(() => {
     return () => {
@@ -302,6 +338,18 @@ const RecordScreen = () => {
       setIsPlaying(false);
     });
   }, []);
+
+  const resetRecording = useCallback(() => {
+    stopPlayback();
+    setRecorderState('idle');
+    setStatusMessage('Ready to record.');
+    setRecordedFilePath(null);
+    setRecordedDurationMs(null);
+    setElapsedMs(0);
+    setTranscription('');
+    setTranscribeProgress(null);
+    setSyncStatus(null);
+  }, [stopPlayback]);
 
   const startRecording = useCallback(async () => {
     if (recorderState === 'recording' || isTranscribing || isPreparingModel) return;
@@ -500,35 +548,39 @@ const RecordScreen = () => {
           )}
         </View>
 
-        {/* Status pill */}
-        <View style={[
-          styles.statusPill,
-          isRecording && styles.statusPillRecording,
-          isBusy && styles.statusPillBusy,
-        ]}>
-          {isRecording && (
-            <Animated.View style={[styles.statusDot, {opacity: pulseOpacity}]} />
-          )}
-          <Text
-            style={[
-              styles.statusPillText,
-              isRecording && styles.statusPillTextRec,
-              isBusy && styles.statusPillTextBusy,
-            ]}
-            numberOfLines={1}>
-            {statusMessage}
-          </Text>
-        </View>
+        {/* Center body — vertically centers mic area in remaining space */}
+        <View style={styles.body}>
 
-        {/* Mic button */}
-        <View style={styles.micArea}>
+        {/* Status pill — only during recording or processing */}
+        {(isRecording || isBusy) && (
+          <View style={[
+            styles.statusPill,
+            isRecording && styles.statusPillRecording,
+            isBusy && styles.statusPillBusy,
+          ]}>
+            {isRecording && (
+              <Animated.View style={[styles.statusDot, {opacity: pulseOpacity}]} />
+            )}
+            <Text
+              style={[
+                styles.statusPillText,
+                isRecording && styles.statusPillTextRec,
+                isBusy && styles.statusPillTextBusy,
+              ]}
+              numberOfLines={1}>
+              {statusMessage}
+            </Text>
+          </View>
+        )}
+
+        {/* Mic stage */}
+        <View style={styles.stage}>
+          <View style={styles.ringOuter} />
+          <View style={styles.ringInner} />
           {isRecording && (
             <Animated.View
               pointerEvents="none"
-              style={[
-                styles.pulseRing,
-                {opacity: pulseOpacity, transform: [{scale: pulseScale}]},
-              ]}
+              style={[styles.pulseRing, {opacity: pulseOpacity, transform: [{scale: pulseScale}]}]}
             />
           )}
           <TouchableOpacity
@@ -548,21 +600,40 @@ const RecordScreen = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Timer */}
-        <Text style={[styles.timer, isRecording && styles.timerRecording]}>
-          {formatDuration(elapsedMs)}
-        </Text>
-        <Text style={styles.timerLabel}>
-          {isRecording
-            ? 'Recording'
-            : isBusy
-            ? isPreparingModel
-              ? 'Loading model'
-              : 'Transcribing'
-            : recorderState === 'recorded'
-            ? 'Complete'
-            : 'Standby'}
-        </Text>
+        {/* Waveform — flat/static at idle, animated when recording */}
+        <View style={styles.waveformRow}>
+          {barAnimValues.map((v, i) => {
+            if (isRecording) {
+              const scaleY = v.interpolate({inputRange: [0, 1], outputRange: [0.12, 1]});
+              return <Animated.View key={i} style={[styles.waveBar, styles.waveBarActive, {transform: [{scaleY}]}]} />;
+            }
+            const idleH = [8, 14, 6, 18, 9][i];
+            return <View key={i} style={[styles.waveBar, {height: idleH, opacity: 0.22}]} />;
+          })}
+        </View>
+
+        {/* Timer (recording / post-recording) or idle hint */}
+        {(isRecording || isBusy || recorderState === 'recorded') ? (
+          <>
+            <Text style={[styles.timer, isRecording && styles.timerRecording]}>
+              {formatDuration(elapsedMs)}
+            </Text>
+            <Text style={styles.timerLabel}>
+              {isRecording
+                ? 'Recording'
+                : isBusy
+                ? isPreparingModel ? 'Loading model' : 'Transcribing'
+                : 'Complete'}
+            </Text>
+          </>
+        ) : (
+          <View style={styles.idleHint}>
+            <Text style={styles.idleHintTitle}>Tap to record</Text>
+            <Text style={styles.idleHintBody}>
+              Speak your field observation. It will be transcribed and saved automatically.
+            </Text>
+          </View>
+        )}
 
         {/* Progress bar */}
         {isBusy && (
@@ -575,6 +646,8 @@ const RecordScreen = () => {
             />
           </View>
         )}
+
+        </View>{/* end body */}
 
         {/* Transcript card */}
         {(transcription || recorderState === 'recorded') ? (
@@ -600,6 +673,12 @@ const RecordScreen = () => {
                   <Text style={styles.playBtnText}>
                     {isPlaying ? '⏹  Stop' : '▶  Play back'}
                   </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.newRecBtn}
+                  onPress={resetRecording}
+                  activeOpacity={0.8}>
+                  <Text style={styles.newRecBtnText}>+ New</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -634,6 +713,13 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: 16,
     paddingBottom: 32,
+  },
+  body: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    paddingVertical: 16,
   },
 
   // ── Header ──
@@ -712,34 +798,51 @@ const styles = StyleSheet.create({
   statusPillTextRec: {color: '#c1392b'},
   statusPillTextBusy: {color: '#a0522d'},
 
-  // ── Mic ──
-  micArea: {
-    alignSelf: 'center',
-    width: 200,
-    height: 200,
+  // ── Mic stage ──
+  stage: {
+    width: 240,
+    height: 240,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 10,
+    marginBottom: 16,
+  },
+  ringOuter: {
+    position: 'absolute',
+    width: 230,
+    height: 230,
+    borderRadius: 115,
+    borderWidth: 1,
+    borderColor: 'rgba(45,106,79,0.12)',
+    backgroundColor: 'rgba(45,106,79,0.04)',
+  },
+  ringInner: {
+    position: 'absolute',
+    width: 176,
+    height: 176,
+    borderRadius: 88,
+    borderWidth: 1,
+    borderColor: 'rgba(45,106,79,0.18)',
+    backgroundColor: 'rgba(45,106,79,0.06)',
   },
   pulseRing: {
     position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
+    width: 210,
+    height: 210,
+    borderRadius: 105,
     backgroundColor: '#c1392b',
   },
   micButton: {
-    width: 130,
-    height: 130,
-    borderRadius: 65,
+    width: 124,
+    height: 124,
+    borderRadius: 62,
     backgroundColor: '#2d6a4f',
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 4,
+    elevation: 6,
     shadowColor: '#2d6a4f',
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    shadowOffset: {width: 0, height: 6},
   },
   micButtonRecording: {
     backgroundColor: '#c1392b',
@@ -813,6 +916,7 @@ const styles = StyleSheet.create({
   cardActions: {
     marginTop: 12,
     flexDirection: 'row',
+    gap: 8,
   },
   playBtn: {
     flex: 1,
@@ -840,6 +944,56 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     textAlign: 'center',
   },
+
+  // ── Waveform ──
+  waveformRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    height: 36,
+    marginBottom: 12,
+  },
+  waveBar: {
+    width: 4,
+    height: 28,
+    borderRadius: 2,
+    backgroundColor: '#2d6a4f',
+  },
+  waveBarActive: {
+    backgroundColor: '#c1392b',
+  },
+
+  // ── Idle hint ──
+  idleHint: {
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+  },
+  idleHintTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1a1a18',
+    marginBottom: 8,
+  },
+  idleHintBody: {
+    fontSize: 14,
+    color: '#8a8a84',
+    textAlign: 'center',
+    lineHeight: 21,
+  },
+
+  // ── New recording button ──
+  newRecBtn: {
+    flex: 1,
+    backgroundColor: '#f0faf2',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#d8f3dc',
+  },
+  newRecBtnText: {fontSize: 13, color: '#2d6a4f', fontWeight: '600'},
 
   // ── Duration ──
   durationLine: {

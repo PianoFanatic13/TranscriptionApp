@@ -1,6 +1,6 @@
-import React, {useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
-  ActivityIndicator,
+  Animated,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -13,13 +13,64 @@ import {
 import {queryNotes, SourceChunk} from '../api';
 
 const SUGGESTIONS = [
-  "What did I observe today?",
-  "Any wildlife sightings this week?",
-  "Were there fence breaches?",
-  "Any injured animals reported?",
-  "Summarize my last patrol",
-  "Any poaching incidents logged?",
+  'What did I observe today?',
+  'Any wildlife sightings this week?',
+  'Were there fence breaches?',
+  'Any injured animals reported?',
+  'Summarize my last patrol',
+  'Any poaching incidents logged?',
 ];
+
+const SkeletonLine = ({
+  width = '100%' as string | number,
+  height = 12,
+  mb = 8,
+}: {
+  width?: string | number;
+  height?: number;
+  mb?: number;
+}) => {
+  const opacity = useRef(new Animated.Value(0.3)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {toValue: 0.85, duration: 750, useNativeDriver: true}),
+        Animated.timing(opacity, {toValue: 0.3, duration: 750, useNativeDriver: true}),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+  return (
+    <Animated.View
+      style={{
+        width,
+        height,
+        backgroundColor: '#dedad4',
+        borderRadius: 4,
+        marginBottom: mb,
+        opacity,
+      }}
+    />
+  );
+};
+
+const SkeletonAnswerCard = () => (
+  <View style={styles.skeletonCard}>
+    <SkeletonLine width={56} height={8} mb={16} />
+    <SkeletonLine mb={9} />
+    <SkeletonLine mb={9} />
+    <SkeletonLine width="70%" mb={0} />
+  </View>
+);
+
+const SkeletonSourceCard = () => (
+  <View style={styles.skeletonSource}>
+    <SkeletonLine width={80} height={8} mb={10} />
+    <SkeletonLine mb={6} />
+    <SkeletonLine width="55%" mb={0} />
+  </View>
+);
 
 const QueryScreen = () => {
   const [queryText, setQueryText] = useState('');
@@ -31,12 +82,8 @@ const QueryScreen = () => {
 
   const handleAsk = async (preset?: string) => {
     const trimmed = (preset ?? queryText).trim();
-    if (!trimmed || isQuerying) {
-      return;
-    }
-    if (preset) {
-      setQueryText(preset);
-    }
+    if (!trimmed || isQuerying) return;
+    if (preset) setQueryText(preset);
 
     setIsQuerying(true);
     setAnswer('');
@@ -75,7 +122,6 @@ const QueryScreen = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f7f5f0" />
 
-      {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerBadge}>
           <Text style={styles.headerBadgeText}>ER</Text>
@@ -86,7 +132,6 @@ const QueryScreen = () => {
         </View>
       </View>
 
-      {/* Search bar — always visible, not inside ScrollView */}
       <View style={styles.inputArea}>
         <View style={styles.inputRow}>
           <TextInput
@@ -109,15 +154,10 @@ const QueryScreen = () => {
             onPress={() => handleAsk()}
             activeOpacity={0.86}
             disabled={!queryText.trim() || isQuerying}>
-            {isQuerying ? (
-              <ActivityIndicator color="#ffffff" size="small" />
-            ) : (
-              <Text style={styles.askBtnText}>Ask</Text>
-            )}
+            <Text style={styles.askBtnText}>Ask</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Suggestion chips — shown before a query */}
         {!hasResults && !isQuerying && (
           <>
             <Text style={styles.tryLabel}>Try asking</Text>
@@ -139,12 +179,25 @@ const QueryScreen = () => {
         )}
       </View>
 
-      {/* Results scroll area */}
       <ScrollView
         style={styles.results}
         contentContainerStyle={styles.resultsContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}>
+
+        {!hasResults && !isQuerying && !errorMessage ? (
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIconRow}>
+              <View style={styles.emptyDot} />
+              <View style={[styles.emptyDot, styles.emptyDotMid]} />
+              <View style={styles.emptyDot} />
+            </View>
+            <Text style={styles.emptyTitle}>Ask a question</Text>
+            <Text style={styles.emptyBody}>
+              Your answer and source notes will appear here.
+            </Text>
+          </View>
+        ) : null}
 
         {errorMessage ? (
           <View style={styles.errorCard}>
@@ -152,43 +205,53 @@ const QueryScreen = () => {
           </View>
         ) : null}
 
-        {answer ? (
-          <View style={styles.answerCard}>
-            <Text style={styles.answerLabel}>Answer</Text>
-            <Text style={styles.answerText}>{answer}</Text>
-          </View>
-        ) : null}
+        {isQuerying ? (
+          <>
+            <SkeletonAnswerCard />
+            <SkeletonSourceCard />
+            <SkeletonSourceCard />
+          </>
+        ) : (
+          <>
+            {answer ? (
+              <View style={styles.answerCard}>
+                <Text style={styles.answerLabel}>Answer</Text>
+                <Text style={styles.answerText}>{answer}</Text>
+              </View>
+            ) : null}
 
-        {sources.length > 0 ? (
-          <View style={styles.sourcesSection}>
-            <Text style={styles.sourcesHeader}>
-              {sources.length} source{sources.length !== 1 ? 's' : ''}
-            </Text>
-            {sources.map(source => (
-              <TouchableOpacity
-                key={source.chunk_id}
-                style={styles.sourceCard}
-                onPress={() =>
-                  setExpandedSource(
-                    expandedSource === source.chunk_id ? null : source.chunk_id,
-                  )
-                }
-                activeOpacity={0.8}>
-                <View style={styles.sourceTop}>
-                  <Text style={styles.sourceDate}>{formatDate(source.created_at)}</Text>
-                  <Text style={styles.sourceChevron}>
-                    {expandedSource === source.chunk_id ? '▴' : '▾'}
-                  </Text>
-                </View>
-                <Text
-                  style={styles.sourceContent}
-                  numberOfLines={expandedSource === source.chunk_id ? undefined : 2}>
-                  {source.content}
+            {sources.length > 0 ? (
+              <View style={styles.sourcesSection}>
+                <Text style={styles.sourcesHeader}>
+                  {sources.length} source{sources.length !== 1 ? 's' : ''}
                 </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        ) : null}
+                {sources.map(source => (
+                  <TouchableOpacity
+                    key={source.chunk_id}
+                    style={styles.sourceCard}
+                    onPress={() =>
+                      setExpandedSource(
+                        expandedSource === source.chunk_id ? null : source.chunk_id,
+                      )
+                    }
+                    activeOpacity={0.8}>
+                    <View style={styles.sourceTop}>
+                      <Text style={styles.sourceDate}>{formatDate(source.created_at)}</Text>
+                      <Text style={styles.sourceChevron}>
+                        {expandedSource === source.chunk_id ? '▴' : '▾'}
+                      </Text>
+                    </View>
+                    <Text
+                      style={styles.sourceContent}
+                      numberOfLines={expandedSource === source.chunk_id ? undefined : 2}>
+                      {source.content}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+          </>
+        )}
 
         <View style={{height: 24}} />
       </ScrollView>
@@ -199,7 +262,6 @@ const QueryScreen = () => {
 const styles = StyleSheet.create({
   container: {flex: 1, backgroundColor: '#f7f5f0'},
 
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -218,16 +280,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerBadgeText: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: '#ffffff',
-    letterSpacing: 0.8,
-  },
+  headerBadgeText: {fontSize: 12, fontWeight: '900', color: '#ffffff', letterSpacing: 0.8},
   title: {fontSize: 17, fontWeight: '700', color: '#1a1a18'},
   subtitle: {fontSize: 12, color: '#8a8a84', marginTop: 1},
 
-  // Input area (fixed, not scrollable)
   inputArea: {
     paddingTop: 14,
     paddingHorizontal: 16,
@@ -268,7 +324,6 @@ const styles = StyleSheet.create({
   askBtnDisabled: {opacity: 0.4},
   askBtnText: {color: '#ffffff', fontWeight: '700', fontSize: 15},
 
-  // Suggestion chips
   tryLabel: {
     fontSize: 11,
     fontWeight: '600',
@@ -276,10 +331,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 8,
   },
-  chipsContent: {
-    paddingRight: 8,
-    alignItems: 'center',
-  },
+  chipsContent: {paddingRight: 8, alignItems: 'center'},
   chip: {
     backgroundColor: '#ffffff',
     borderRadius: 20,
@@ -292,15 +344,9 @@ const styles = StyleSheet.create({
   },
   chipText: {color: '#52524e', fontSize: 13},
 
-  // Results
   results: {flex: 1},
-  resultsContent: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 24,
-  },
+  resultsContent: {paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24},
 
-  // Error
   errorCard: {
     backgroundColor: '#fdecea',
     borderRadius: 12,
@@ -311,7 +357,24 @@ const styles = StyleSheet.create({
   },
   errorText: {color: '#c1392b', fontSize: 13, lineHeight: 18},
 
-  // Answer
+  // Skeleton
+  skeletonCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.07)',
+  },
+  skeletonSource: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.07)',
+  },
+
   answerCard: {
     backgroundColor: '#ffffff',
     borderRadius: 16,
@@ -330,7 +393,6 @@ const styles = StyleSheet.create({
   },
   answerText: {color: '#1a1a18', fontSize: 15, lineHeight: 24},
 
-  // Sources
   sourcesSection: {marginTop: 4},
   sourcesHeader: {
     fontSize: 11,
@@ -357,6 +419,46 @@ const styles = StyleSheet.create({
   sourceDate: {fontSize: 11, color: '#8a8a84'},
   sourceChevron: {fontSize: 10, color: '#8a8a84'},
   sourceContent: {color: '#52524e', fontSize: 13, lineHeight: 19},
+
+  // Empty state
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 56,
+    paddingHorizontal: 32,
+  },
+  emptyIconRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 6,
+    marginBottom: 20,
+  },
+  emptyDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#d8f3dc',
+  },
+  emptyDotMid: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#2d6a4f',
+    opacity: 0.3,
+  },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#1a1a18',
+    marginBottom: 8,
+  },
+  emptyBody: {
+    fontSize: 14,
+    color: '#8a8a84',
+    textAlign: 'center',
+    lineHeight: 21,
+  },
 });
 
 export default QueryScreen;

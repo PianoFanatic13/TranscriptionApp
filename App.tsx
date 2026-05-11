@@ -1,5 +1,7 @@
 import React, {useEffect, useState} from 'react';
-import {ActivityIndicator, StyleSheet, View} from 'react-native';
+import {ActivityIndicator, LogBox, StyleSheet, View} from 'react-native';
+
+LogBox.ignoreLogs(['new NativeEventEmitter']);
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {NavigationContainer} from '@react-navigation/native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
