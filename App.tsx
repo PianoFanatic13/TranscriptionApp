@@ -59,12 +59,12 @@ const App = () => {
         </Tab.Screen>
         <Tab.Screen
           name="Notes"
-          component={NotesScreen}
           options={{
             tabBarLabel: 'Notes',
             tabBarIcon: ({color}) => <NotesTabIcon color={color} />,
-          }}
-        />
+          }}>
+          {() => <NotesScreen userId={userId} />}
+        </Tab.Screen>
         <Tab.Screen
           name="Query"
           options={{

@@ -168,7 +168,7 @@ const QueryScreen = ({userId}: Props) => {
             <Text style={styles.sourcesHeader}>
               {sources.length} source{sources.length !== 1 ? 's' : ''}
             </Text>
-            {sources.map(source => (
+            {sources.map((source, idx) => (
               <TouchableOpacity
                 key={source.chunk_id}
                 style={styles.sourceCard}
@@ -179,7 +179,12 @@ const QueryScreen = ({userId}: Props) => {
                 }
                 activeOpacity={0.8}>
                 <View style={styles.sourceTop}>
-                  <Text style={styles.sourceDate}>{formatDate(source.created_at)}</Text>
+                  <View style={styles.sourceTitleRow}>
+                    <View style={styles.sourceBadge}>
+                      <Text style={styles.sourceBadgeText}>Source {idx + 1}</Text>
+                    </View>
+                    <Text style={styles.sourceDate}>{formatDate(source.created_at)}</Text>
+                  </View>
                   <Text style={styles.sourceChevron}>
                     {expandedSource === source.chunk_id ? '▴' : '▾'}
                   </Text>
@@ -357,6 +362,24 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 6,
+  },
+  sourceTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  sourceBadge: {
+    backgroundColor: '#f0faf2',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  sourceBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#2d6a4f',
+    letterSpacing: 0.3,
   },
   sourceDate: {fontSize: 11, color: '#8a8a84'},
   sourceChevron: {fontSize: 10, color: '#8a8a84'},

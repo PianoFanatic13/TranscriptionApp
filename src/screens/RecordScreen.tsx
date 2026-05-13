@@ -426,6 +426,7 @@ const RecordScreen = ({userId}: Props) => {
         setEditDraft('');
       }
       await saveLocalNote({
+        userId,
         createdAt: Date.now(),
         transcript: candidate,
         durationMs: recordedDurationMs ?? 0,

@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import Sound from 'react-native-sound';
 import RNFS from 'react-native-fs';
-import {getAllNotes, deleteLocalNote, LocalNote} from '../storage';
+import {getNotesByUser, deleteLocalNote, LocalNote} from '../storage';
 
 const formatDuration = (ms: number) => {
   const s = Math.floor(ms / 1000);
@@ -27,16 +27,16 @@ const formatDate = (ts: number) => {
   );
 };
 
-const NotesScreen = () => {
+const NotesScreen = ({userId}: {userId: string}) => {
   const [notes, setNotes] = useState<LocalNote[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const soundRef = useRef<Sound | null>(null);
 
   const loadNotes = useCallback(async () => {
-    const all = await getAllNotes();
+    const all = await getNotesByUser(userId);
     setNotes(all);
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     loadNotes();
@@ -130,7 +130,7 @@ const NotesScreen = () => {
           </View>
           <View style={{flex: 1}}>
             <Text style={styles.headerTitle}>My Notes</Text>
-            <Text style={styles.headerSub}>Local recordings</Text>
+            <Text style={styles.headerSub}>Your recordings on this device</Text>
           </View>
         </View>
 

@@ -4,6 +4,7 @@ const ALL_NOTES_KEY = 'all_notes';
 
 export interface LocalNote {
   id: string;
+  userId: string;
   createdAt: number;
   transcript: string;
   durationMs: number;
@@ -32,6 +33,11 @@ export async function getAllNotes(): Promise<LocalNote[]> {
   return (JSON.parse(raw) as LocalNote[]).sort(
     (a, b) => b.createdAt - a.createdAt,
   );
+}
+
+export async function getNotesByUser(userId: string): Promise<LocalNote[]> {
+  const all = await getAllNotes();
+  return all.filter(n => n.userId === userId);
 }
 
 export async function deleteLocalNote(id: string): Promise<void> {
