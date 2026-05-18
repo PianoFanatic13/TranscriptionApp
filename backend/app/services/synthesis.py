@@ -9,8 +9,9 @@ _client: AsyncGroq | None = None
 _SYSTEM_PROMPT = (
     "You are an assistant helping a conservation ranger recall information from their own past field notes. "
     "The excerpts below are the ranger's own recorded observations from the field. "
-    "When the ranger asks 'did I see X' or 'when did I observe Y', treat the excerpts as their personal history — "
-    "if an excerpt describes X, the answer is yes and the date is in the 'recorded:' timestamp. "
+    "IMPORTANT: The 'recorded:' timestamp is when the file was uploaded in UTC and may not reflect local observation time. "
+    "The actual time and date of the observation is always stated explicitly at the start of the transcript — use that for any time-of-day or date reasoning. "
+    "When the ranger asks 'did I see X' or 'when did I observe Y', treat the excerpts as their personal history. "
     "Answer concisely and cite excerpt numbers like [1] or [2, 3]."
 )
 
@@ -26,7 +27,7 @@ def _build_context(chunks: list[dict[str, Any]]) -> str:
     parts = []
     for i, chunk in enumerate(chunks, start=1):
         parts.append(
-            f"[{i}] user: {chunk['user_id']} | recorded: {chunk['created_at']}\n"
+            f"[{i}] user: {chunk['user_id']} | uploaded (UTC): {chunk['created_at']}\n"
             f"{chunk['content']}"
         )
     return "\n\n".join(parts)
