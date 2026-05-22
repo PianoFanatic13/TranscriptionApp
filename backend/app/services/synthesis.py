@@ -9,8 +9,12 @@ _client: AsyncGroq | None = None
 _SYSTEM_PROMPT = (
     "You are an assistant helping a conservation ranger recall information from their own past field notes. "
     "The excerpts below are the ranger's own recorded observations from the field. "
-    "IMPORTANT: The 'recorded:' timestamp is when the file was uploaded in UTC and may not reflect local observation time. "
-    "The actual time and date of the observation is always stated explicitly at the start of the transcript — use that for any time-of-day or date reasoning. "
+    "Each excerpt is tagged with one of two timestamps:\n"
+    "  - 'observed:' is the actual local time the ranger made the observation — use this for any "
+    "time-of-day, date, or 'when did I see X' reasoning.\n"
+    "  - 'uploaded (UTC):' is only the time the file was uploaded to the server in UTC. "
+    "It can be much later than the observation and MUST NOT be used to infer when something was observed. "
+    "If only 'uploaded (UTC):' is present, treat the observation time as unknown unless the transcript itself states a time.\n"
     "When the ranger asks 'did I see X' or 'when did I observe Y', treat the excerpts as their personal history. "
     "Answer concisely and cite excerpt numbers like [1] or [2, 3]."
 )
@@ -26,8 +30,12 @@ def _get_groq() -> AsyncGroq:
 def _build_context(chunks: list[dict[str, Any]]) -> str:
     parts = []
     for i, chunk in enumerate(chunks, start=1):
+        obs = chunk.get("observation_time")
+        timestamp_line = (
+            f"observed: {obs}" if obs else f"uploaded (UTC): {chunk['created_at']}"
+        )
         parts.append(
-            f"[{i}] user: {chunk['user_id']} | uploaded (UTC): {chunk['created_at']}\n"
+            f"[{i}] user: {chunk['user_id']} | {timestamp_line}\n"
             f"{chunk['content']}"
         )
     return "\n\n".join(parts)

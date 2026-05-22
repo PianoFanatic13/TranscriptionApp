@@ -12,6 +12,7 @@ class IngestRequest(BaseModel):
     user_id: str
     raw_transcript: str
     metadata: Optional[dict[str, Any]] = Field(default_factory=dict)
+    observation_time: Optional[datetime] = None
 
 
 class IngestResponse(BaseModel):

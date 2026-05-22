@@ -18,6 +18,7 @@ async def embed_transcript(payload: IngestRequest) -> IngestResponse:
         metadata=payload.metadata or {},
         chunks=chunks,
         embeddings=vectors,
+        observation_time=payload.observation_time,
     )
     return IngestResponse(note_id=note_id, chunk_count=len(chunks))
 

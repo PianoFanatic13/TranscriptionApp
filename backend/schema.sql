@@ -28,6 +28,12 @@ create table if not exists chunks (
     created_at  timestamptz not null default now()
 );
 
+-- ── Optional / nullable columns added after initial schema ───────────────────
+-- observation_time = the actual time the ranger made the observation in the field,
+-- distinct from created_at (which equals upload time). Nullable so legacy rows survive.
+alter table notes  add column if not exists observation_time timestamptz;
+alter table chunks add column if not exists observation_time timestamptz;
+
 -- ── Indexes ───────────────────────────────────────────────────────────────────
 
 -- HNSW for approximate nearest-neighbour vector search (cosine distance)
@@ -50,6 +56,12 @@ grant all on public.chunks to service_role;
 
 -- ── RPC helper functions ──────────────────────────────────────────────────────
 -- Called by services/retrieval.py via supabase.rpc(...)
+--
+-- NOTE: we DROP first because Postgres rejects `create or replace function` when
+-- the return type changes (e.g. when adding observation_time to the OUT columns).
+
+drop function if exists match_chunks_vector(vector, integer, text);
+drop function if exists match_chunks_bm25(text, integer, text);
 
 create or replace function match_chunks_vector(
     query_embedding vector(384),
@@ -57,13 +69,14 @@ create or replace function match_chunks_vector(
     p_user_id       text default null
 )
 returns table (
-    id          uuid,
-    note_id     uuid,
-    chunk_index integer,
-    content     text,
-    user_id     text,
-    created_at  timestamptz,
-    similarity  float
+    id               uuid,
+    note_id          uuid,
+    chunk_index      integer,
+    content          text,
+    user_id          text,
+    created_at       timestamptz,
+    observation_time timestamptz,
+    similarity       float
 )
 language sql stable
 as $$
@@ -74,6 +87,7 @@ as $$
         content,
         user_id,
         created_at,
+        observation_time,
         1 - (embedding <=> query_embedding) as similarity
     from chunks
     where (p_user_id is null or user_id = p_user_id)
@@ -88,13 +102,14 @@ create or replace function match_chunks_bm25(
     p_user_id   text default null
 )
 returns table (
-    id          uuid,
-    note_id     uuid,
-    chunk_index integer,
-    content     text,
-    user_id     text,
-    created_at  timestamptz,
-    rank        float
+    id               uuid,
+    note_id          uuid,
+    chunk_index      integer,
+    content          text,
+    user_id          text,
+    created_at       timestamptz,
+    observation_time timestamptz,
+    rank             float
 )
 language sql stable
 as $$
@@ -105,6 +120,7 @@ as $$
         content,
         user_id,
         created_at,
+        observation_time,
         ts_rank(ts_content, websearch_to_tsquery('english', query_text)) as rank
     from chunks
     where ts_content @@ websearch_to_tsquery('english', query_text)
