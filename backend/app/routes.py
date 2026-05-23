@@ -37,6 +37,7 @@ async def query_notes(payload: QueryRequest) -> QueryResponse:
             chunk_index=c["chunk_index"],
             user_id=c["user_id"],
             created_at=c["created_at"],
+            observation_time=c.get("observation_time"),
         )
         for c in chunks
     ]

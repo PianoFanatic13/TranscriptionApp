@@ -425,6 +425,8 @@ const RecordScreen = ({userId}: Props) => {
         setIsEditing(false);
         setEditDraft('');
       }
+      const observationTimeMs = recordingStartedAtRef.current ?? Date.now();
+      const observationTimeIso = new Date(observationTimeMs).toISOString();
       await saveLocalNote({
         userId,
         createdAt: Date.now(),
@@ -432,7 +434,11 @@ const RecordScreen = ({userId}: Props) => {
         durationMs: recordedDurationMs ?? 0,
         audioPath: recordedFilePath ?? '',
       });
-      await enqueueNote({user_id: userId, raw_transcript: candidate});
+      await enqueueNote({
+        user_id: userId,
+        raw_transcript: candidate,
+        observation_time: observationTimeIso,
+      });
       const {sent} = await flushQueue();
       setSubmittedAt(Date.now());
       if (sent > 0) {

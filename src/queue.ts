@@ -8,6 +8,7 @@ interface PendingNote {
   user_id: string;
   raw_transcript: string;
   metadata: Record<string, unknown>;
+  observation_time?: string;
   created_at: string;
 }
 
@@ -19,6 +20,7 @@ export async function enqueueNote(note: {
   user_id: string;
   raw_transcript: string;
   metadata?: Record<string, unknown>;
+  observation_time?: string;
 }): Promise<void> {
   const raw = await AsyncStorage.getItem(PENDING_NOTES_KEY);
   const queue: PendingNote[] = raw ? JSON.parse(raw) : [];
@@ -27,6 +29,7 @@ export async function enqueueNote(note: {
     user_id: note.user_id,
     raw_transcript: note.raw_transcript,
     metadata: note.metadata ?? {},
+    observation_time: note.observation_time,
     created_at: new Date().toISOString(),
   });
   await AsyncStorage.setItem(PENDING_NOTES_KEY, JSON.stringify(queue));
@@ -69,6 +72,7 @@ async function doFlush(): Promise<{sent: number; failed: number}> {
         user_id: note.user_id,
         raw_transcript: note.raw_transcript,
         metadata: note.metadata,
+        observation_time: note.observation_time,
       });
       sent++;
     } catch {

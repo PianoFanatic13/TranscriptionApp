@@ -37,6 +37,7 @@ class SourceChunk(BaseModel):
     chunk_index: int
     user_id: str
     created_at: datetime
+    observation_time: Optional[datetime] = None
 
 
 class QueryResponse(BaseModel):

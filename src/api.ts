@@ -6,6 +6,7 @@ export interface EmbedPayload {
   user_id: string;
   raw_transcript: string;
   metadata?: Record<string, unknown>;
+  observation_time?: string;
 }
 
 export interface EmbedResponse {
@@ -22,6 +23,7 @@ export interface SourceChunk {
   chunk_index: number;
   user_id: string;
   created_at: string;
+  observation_time?: string | null;
 }
 
 export interface QueryResponse {

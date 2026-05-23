@@ -8,16 +8,15 @@ _client: AsyncGroq | None = None
 
 _SYSTEM_PROMPT = (
     "You are an assistant helping a conservation ranger recall information from their own past field notes. "
-    "The excerpts below are the ranger's own recorded observations from the field. "
-    "Each excerpt is tagged with one of two timestamps:\n"
-    "  - 'observed:' is when the ranger made the observation, stored in UTC. "
-    "Use this for any time-of-day, date, or 'when did I see X' reasoning. "
-    "Whenever you mention an 'observed:' time, convert it from UTC to PDT (UTC-7) by subtracting 7 hours, "
+    "The excerpts below are the ranger's own recorded observations from the field.\n"
+    "Some excerpts carry an 'observed (UTC):' timestamp — when the ranger made the observation, in UTC. "
+    "Whenever you mention an 'observed (UTC):' time, convert it from UTC to PDT (UTC-7) by subtracting 7 hours, "
     "and state it in PDT (e.g. 'May 8 at 10:14 AM' rather than the UTC value). "
     "If the conversion crosses midnight, adjust the date accordingly.\n"
-    "  - 'uploaded (UTC):' is only the time the file was uploaded to the server in UTC. "
-    "It can be much later than the observation and MUST NOT be used to infer when something was observed. "
-    "If only 'uploaded (UTC):' is present, treat the observation time as unknown unless the transcript itself states a time.\n"
+    "Excerpts without an 'observed (UTC):' tag have no machine-readable observation time. "
+    "If the ranger asks when something was observed for an untagged excerpt, look for a time stated explicitly in the transcript "
+    "(rangers often say e.g. 'it is currently 9:21 AM on May 18'); if no time is stated, say the observation time is unknown. "
+    "Never invent a date or time.\n"
     "When the ranger asks 'did I see X' or 'when did I observe Y', treat the excerpts as their personal history. "
     "Answer concisely and cite excerpt numbers like [1] or [2, 3]."
 )
@@ -34,13 +33,10 @@ def _build_context(chunks: list[dict[str, Any]]) -> str:
     parts = []
     for i, chunk in enumerate(chunks, start=1):
         obs = chunk.get("observation_time")
-        timestamp_line = (
-            f"observed: {obs}" if obs else f"uploaded (UTC): {chunk['created_at']}"
-        )
-        parts.append(
-            f"[{i}] user: {chunk['user_id']} | {timestamp_line}\n"
-            f"{chunk['content']}"
-        )
+        header = f"[{i}] user: {chunk['user_id']}"
+        if obs:
+            header += f" | observed (UTC): {obs}"
+        parts.append(f"{header}\n{chunk['content']}")
     return "\n\n".join(parts)
 
 
