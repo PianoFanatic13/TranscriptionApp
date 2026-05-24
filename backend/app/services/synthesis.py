@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from groq import AsyncGroq
@@ -5,15 +6,14 @@ from groq import AsyncGroq
 from app.config import settings
 
 _client: AsyncGroq | None = None
+_PDT = timezone(timedelta(hours=-7))
 
 _SYSTEM_PROMPT = (
     "You are an assistant helping a conservation ranger recall information from their own past field notes. "
     "The excerpts below are the ranger's own recorded observations from the field.\n"
-    "Some excerpts carry an 'observed (UTC):' timestamp — when the ranger made the observation, in UTC. "
-    "Whenever you mention an 'observed (UTC):' time, convert it from UTC to PDT (UTC-7) by subtracting 7 hours, "
-    "and state it in PDT (e.g. 'May 8 at 10:14 AM' rather than the UTC value). "
-    "If the conversion crosses midnight, adjust the date accordingly.\n"
-    "Excerpts without an 'observed (UTC):' tag have no machine-readable observation time. "
+    "Some excerpts carry an 'observed (PDT):' timestamp — the exact local time the ranger made the observation. "
+    "Use these times as-is when answering; do not convert or adjust them.\n"
+    "Excerpts without an 'observed (PDT):' tag have no machine-readable observation time. "
     "If the ranger asks when something was observed for an untagged excerpt, look for a time stated explicitly in the transcript "
     "(rangers often say e.g. 'it is currently 9:21 AM on May 18'); if no time is stated, say the observation time is unknown. "
     "Never invent a date or time.\n"
@@ -29,13 +29,26 @@ def _get_groq() -> AsyncGroq:
     return _client
 
 
+def _utc_to_pdt(obs: str | datetime) -> str:
+    if isinstance(obs, str):
+        obs_dt = datetime.fromisoformat(obs.replace("Z", "+00:00"))
+    else:
+        obs_dt = obs if obs.tzinfo else obs.replace(tzinfo=timezone.utc)
+    pdt_dt = obs_dt.astimezone(_PDT)
+    month_day = pdt_dt.strftime("%-d")  # no leading zero (Linux/Render)
+    hour = pdt_dt.strftime("%-I")
+    minute = pdt_dt.strftime("%M")
+    ampm = pdt_dt.strftime("%p")
+    return pdt_dt.strftime(f"%B {month_day}, %Y at {hour}:{minute} {ampm} PDT")
+
+
 def _build_context(chunks: list[dict[str, Any]]) -> str:
     parts = []
     for i, chunk in enumerate(chunks, start=1):
         obs = chunk.get("observation_time")
         header = f"[{i}] user: {chunk['user_id']}"
         if obs:
-            header += f" | observed (UTC): {obs}"
+            header += f" | observed (PDT): {_utc_to_pdt(obs)}"
         parts.append(f"{header}\n{chunk['content']}")
     return "\n\n".join(parts)
 
